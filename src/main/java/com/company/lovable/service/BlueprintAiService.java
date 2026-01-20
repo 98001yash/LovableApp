@@ -1,63 +1,57 @@
 package com.company.lovable.service;
 
 
+
 import com.company.lovable.blueprint.AppBlueprint;
 import com.company.lovable.exceptions.ai.AiOutputInvalidException;
 import com.company.lovable.exceptions.ai.AiPolicyViolationException;
 import com.company.lovable.exceptions.ai.AiProviderUnavailableException;
 import com.company.lovable.exceptions.ai.AiRateLimitException;
-import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.stereotype.Service;
 
 @Service
-@RequiredArgsConstructor
 public class BlueprintAiService {
 
     private final ChatClient chatClient;
 
-    /**
-     * Core AI entry point
-     * converts a user idea into an AppBlueprint using spring AI
-     *
-     */
+    public BlueprintAiService(ChatClient.Builder chatClientBuilder) {
+        this.chatClient = chatClientBuilder.build();
+    }
 
-    public AppBlueprint generateBlueprint(String userPrompt){
-        try{
+    public AppBlueprint generateBlueprint(String userPrompt) {
+
+        try {
             return chatClient
                     .prompt()
                     .system(buildSystemPrompt())
                     .user(userPrompt)
                     .call()
                     .entity(AppBlueprint.class);
+
         }
         /*
-          ------ AI output/ Mapping errors ------
-          Happens when:
-            Json is malformed
-            fields are missing
-            Enum values do not match
+         * -------- INVALID AI OUTPUT / MAPPING --------
          */
-
         catch (IllegalArgumentException ex) {
             throw new AiOutputInvalidException(
                     "AI returned an invalid application blueprint. Please refine your prompt."
             );
         }
+        /*
+         * -------- AI PROVIDER / NETWORK / RATE LIMIT --------
+         */
+        catch (RuntimeException ex) {
 
-        ///------------OPENAI PROVIDER ERRORS ----------------
-        catch (OpenAiApi.OpenAiApiException ex) {
+            String message = ex.getMessage() != null ? ex.getMessage().toLowerCase() : "";
 
-            int statusCode = ex.getStatusCode();
-
-            if (statusCode == 429) {
+            if (message.contains("rate limit") || message.contains("429")) {
                 throw new AiRateLimitException(
                         "AI rate limit exceeded. Please try again later."
                 );
             }
 
-            if (statusCode == 400 || statusCode == 403) {
+            if (message.contains("policy") || message.contains("safety")) {
                 throw new AiPolicyViolationException(
                         "Your request was rejected by AI safety policies."
                 );
@@ -65,15 +59,6 @@ public class BlueprintAiService {
 
             throw new AiProviderUnavailableException(
                     "AI service is temporarily unavailable.",
-                    ex
-            );
-        }
-        /*
-         * -------- NETWORK / TIMEOUT / UNKNOWN --------
-         */
-        catch (Exception ex) {
-            throw new AiProviderUnavailableException(
-                    "Unexpected AI failure occurred.",
                     ex
             );
         }
