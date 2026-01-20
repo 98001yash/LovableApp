@@ -2,8 +2,13 @@ package com.company.lovable.service;
 
 
 import com.company.lovable.blueprint.AppBlueprint;
+import com.company.lovable.exceptions.ai.AiOutputInvalidException;
+import com.company.lovable.exceptions.ai.AiPolicyViolationException;
+import com.company.lovable.exceptions.ai.AiProviderUnavailableException;
+import com.company.lovable.exceptions.ai.AiRateLimitException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -25,7 +30,52 @@ public class BlueprintAiService {
                     .system(buildSystemPrompt())
                     .user(userPrompt)
                     .call()
-                    .entity(AppBlueprint.class)
+                    .entity(AppBlueprint.class);
+        }
+        /*
+          ------ AI output/ Mapping errors ------
+          Happens when:
+            Json is malformed
+            fields are missing
+            Enum values do not match
+         */
+
+        catch (IllegalArgumentException ex) {
+            throw new AiOutputInvalidException(
+                    "AI returned an invalid application blueprint. Please refine your prompt."
+            );
+        }
+
+        ///------------OPENAI PROVIDER ERRORS ----------------
+        catch (OpenAiApi.OpenAiApiException ex) {
+
+            int statusCode = ex.getStatusCode();
+
+            if (statusCode == 429) {
+                throw new AiRateLimitException(
+                        "AI rate limit exceeded. Please try again later."
+                );
+            }
+
+            if (statusCode == 400 || statusCode == 403) {
+                throw new AiPolicyViolationException(
+                        "Your request was rejected by AI safety policies."
+                );
+            }
+
+            throw new AiProviderUnavailableException(
+                    "AI service is temporarily unavailable.",
+                    ex
+            );
+        }
+        /*
+         * -------- NETWORK / TIMEOUT / UNKNOWN --------
+         */
+        catch (Exception ex) {
+            throw new AiProviderUnavailableException(
+                    "Unexpected AI failure occurred.",
+                    ex
+            );
         }
     }
 
